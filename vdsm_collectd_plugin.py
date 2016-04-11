@@ -42,18 +42,10 @@ client = None
 
 
 def fetch_info(conf):
-    """Connect to VDSM server and request info"""
-    try:
-        stats = client.getAllVmStats()
-        # s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        # s.connect((conf['host'], conf['port']))
-        # log_verbose('Connected to VDSM at %s:%s' % (conf['host'],
-        #                                            conf['port']))
-    except socket.error, e:
-        collectd.error('vdsm_info plugin: Error connecting to %s:%d - %r'
-                       % (conf['host'], conf['port'], e))
-        return None
-
+    global client
+    if client is None:
+        log("for some reason client is still None")
+    stats = client.getAllVmStats()
     # return parse_info(stats)
     return stats
 
@@ -119,15 +111,15 @@ def configure_callback(conf):
         elif searchObj:
             log('Matching expression found: key: %s - value: %s' %
                 (searchObj.group(1), val))
-            global REDIS_INFO
-            REDIS_INFO[searchObj.group(1), val] = True
+            global VDSM_INFO
+            VDSM_INFO[searchObj.group(1), val] = True
         else:
             collectd.warning('vdsm_info plugin: Unknown config key: %s.' %
                              key)
             continue
 
-    log('Configured with host=%s, port=%s, instance name=%s, \
-        using_auth=%s' % (host, port, instance, auth is not None))
+    log('Configured with host=%s, port=%s, instance name=%s, using_auth=%s' %
+        (host, port, instance, auth is not None))
 
     CONFIGS.append({'host': host, 'port': port, 'auth': auth,
                     'instance': instance})
@@ -181,7 +173,8 @@ def get_metrics(conf):
         plugin_instance = '{host}:{port}'.format(host=conf['host'],
                                                  port=conf['port'])
 
-    for keyTuple, val in REDIS_INFO.iteritems():
+    # TODO: create VDSM_INFO thing
+    for keyTuple, val in VDSM_INFO.iteritems():
         key, val = keyTuple
 
         if key == 'total_connections_received' and val == 'counter':
@@ -205,6 +198,7 @@ def init_callback():
     # TODO: using one conf for now. maybe we should support listening for more
     # hosts
     # maybe add event queue as well?
+    global client
     client = jsonrpcvdscli.connect('jms.topic.vdsm_requests')
     client._client.registerEventCallback(event_recieved)
     log("Init: - we check if we can hold connection")

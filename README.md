@@ -15,8 +15,8 @@ LoadPlugin python
   ModulePath "[path to where you install vdsm_collectd_plugin.py file]"
   LogTraces true
   Interactive true
-  Import "vdsm_metrics"
-  <Module vdsm_metrics">
+  Import "vdsm_collectd_plugin"
+  <Module vdsm_collectd_plugin">
         host localhost
 	port 54321
 	instance 'name'
