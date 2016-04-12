@@ -43,8 +43,11 @@ client = None
 
 
 def fetch_info(conf):
-    """Connect to VDSM server and request info"""
+    global client
+    if client is None:
+        log("for some reason client is still None")
     stats = client.getAllVmStats()
+    # return parse_info(stats)
     return stats
 
 
@@ -109,8 +112,8 @@ def configure_callback(conf):
         elif searchObj:
             log('Matching expression found: key: %s - value: %s' %
                 (searchObj.group(1), val))
-            global REDIS_INFO
-            REDIS_INFO[searchObj.group(1), val] = True
+            global VDSM_INFO
+            VDSM_INFO[searchObj.group(1), val] = True
         else:
             collectd.warning('vdsm_info plugin: Unknown config key: %s.' %
                              key)
@@ -171,7 +174,8 @@ def get_metrics(conf):
         plugin_instance = '{host}:{port}'.format(host=conf['host'],
                                                  port=conf['port'])
 
-    for keyTuple, val in REDIS_INFO.iteritems():
+    # TODO: create VDSM_INFO thing
+    for keyTuple, val in VDSM_INFO.iteritems():
         key, val = keyTuple
 
         if key == 'total_connections_received' and val == 'counter':
@@ -199,9 +203,11 @@ def init_callback():
         log("vdsmd is not running.")
         # TODO: what is it was down at first? can we rerun the plugin?
         return
+    # maybe add event queue as well?
+    global client
     client = jsonrpcvdscli.connect('jms.topic.vdsm_requests')
     # TODO: add to jsonrpcvdscli even method registration
-    client._client.registerEventCallback(event_recieved)
+    # client._client.registerEventCallback(event_recieved)
     # TODO: stop client gently
 
 
