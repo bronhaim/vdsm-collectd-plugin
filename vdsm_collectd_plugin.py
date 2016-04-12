@@ -26,8 +26,9 @@
 # collectd-python:
 #   http://collectd.org/documentation/manpages/collectd-python.5.shtml
 
-# require vdsm
+# Require vdsm installed and running
 from vdsm import jsonrpcvdscli
+from vdsm.tool import service
 import collectd
 import re
 
@@ -43,18 +44,7 @@ client = None
 
 def fetch_info(conf):
     """Connect to VDSM server and request info"""
-    try:
-        stats = client.getAllVmStats()
-        # s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        # s.connect((conf['host'], conf['port']))
-        # log_verbose('Connected to VDSM at %s:%s' % (conf['host'],
-        #                                            conf['port']))
-    except socket.error, e:
-        collectd.error('vdsm_info plugin: Error connecting to %s:%d - %r'
-                       % (conf['host'], conf['port'], e))
-        return None
-
-    # return parse_info(stats)
+    stats = client.getAllVmStats()
     return stats
 
 
@@ -126,8 +116,8 @@ def configure_callback(conf):
                              key)
             continue
 
-    log('Configured with host=%s, port=%s, instance name=%s, \
-        using_auth=%s' % (host, port, instance, auth is not None))
+    log('Configured with host=%s, port=%s, instance name=%s, using_auth=%s' %
+        (host, port, instance, auth is not None))
 
     CONFIGS.append({'host': host, 'port': port, 'auth': auth,
                     'instance': instance})
@@ -204,13 +194,18 @@ def init_callback():
     # TODO: add ssl option
     # TODO: using one conf for now. maybe we should support listening for more
     # hosts
-    # maybe add event queue as well?
+    log("Init: Check VDSM availability")
+    if service.service_status("vdsmd"):
+        log("vdsmd is not running.")
+        # TODO: what is it was down at first? can we rerun the plugin?
+        return
     client = jsonrpcvdscli.connect('jms.topic.vdsm_requests')
+    # TODO: add to jsonrpcvdscli even method registration
     client._client.registerEventCallback(event_recieved)
-    log("Init: - we check if we can hold connection")
-    # How can I stop it nicely
+    # TODO: stop client gently
 
 
+# doesn't work yet
 def event_recieved():
     log("Got event")
 
