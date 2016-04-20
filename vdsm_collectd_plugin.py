@@ -36,53 +36,16 @@ import re
 VERBOSE_LOGGING = False
 
 CONFIGS = []
-VDSM_INFO = {}
+VDSM_INFO = {
+                'cpuUsage': 'CPU usage',
+                'memFree': 'Free memory in hypervisor',
+                'cpuIdle': 'CPU idle time',
+                'swapFree': 'free swap space',
+                'cpuSys': 'whatever',
+            }
 
 
 client = None
-
-
-def fetch_info(conf):
-    global client
-    if client is None:
-        log("for some reason client is still None")
-    stats = client.getAllVmStats()
-    # return parse_info(stats)
-    return stats
-
-
-def parse_info(info_lines):
-    """Parse info response from vdsm"""
-    info = {}
-    for line in info_lines:
-        if "" == line or line.startswith('#'):
-            continue
-
-        if ':' not in line:
-            collectd.warning('vdsm_info plugin: Bad format for info line: %s'
-                             % line)
-            continue
-
-        key, val = line.split(':')
-
-        # Handle multi-value keys (for dbs and slaves).
-        # db lines look like "db0:keys=10,expire=0"
-        # slave lines look like "slave0:ip=192.168.0.181,port=6379,state=online
-        # ,offset=1650991674247,lag=1"
-        if ',' in val:
-            split_val = val.split(',')
-            for sub_val in split_val:
-                k, _, v = sub_val.rpartition('=')
-                sub_key = "{0}_{1}".format(key, k)
-                info[sub_key] = v
-        else:
-            info[key] = val
-
-    info["changes_since_last_save"] = info.get("changes_since_last_save",
-                                               info.get(
-                                                "rdb_changes_since_last_save"))
-
-    return info
 
 
 def configure_callback(conf):
@@ -109,83 +72,57 @@ def configure_callback(conf):
             VERBOSE_LOGGING = bool(node.values[0]) or VERBOSE_LOGGING
         elif key == 'instance':
             instance = val
-        elif searchObj:
-            log('Matching expression found: key: %s - value: %s' %
-                (searchObj.group(1), val))
-            global VDSM_INFO
-            VDSM_INFO[searchObj.group(1), val] = True
         else:
             collectd.warning('vdsm_info plugin: Unknown config key: %s.' %
                              key)
             continue
 
-    log('Configured with host=%s, port=%s, instance name=%s, using_auth=%s' %
+    log('Configured with host=%s, port=%s, instance=%s, using_auth=%s' %
         (host, port, instance, auth is not None))
 
     CONFIGS.append({'host': host, 'port': port, 'auth': auth,
                     'instance': instance})
 
 
-def dispatch_value(info, key, type, plugin_instance=None, type_instance=None):
-    """Read a key from info response data and dispatch a value"""
-    if key not in info:
-        collectd.warning('vdsm_info plugin: Info key not found: %s' % key)
-        return
-
-    if plugin_instance is None:
-        plugin_instance = 'unknown vdsm'
-        collectd.error('vdsm_info plugin: plugin_instance is not set, \
-                       Info key: %s' % key)
-
-    if not type_instance:
-        type_instance = key
-
-    try:
-        value = int(info[key])
-    except ValueError:
-        value = float(info[key])
-
-    log('Sending value: %s=%s' % (type_instance, value))
-
-    val = collectd.Values(plugin='vdsm_stats')
-    val.type = type
-    val.type_instance = type_instance
-    val.plugin_instance = plugin_instance
-    val.values = [value]
-    val.dispatch()
-
 
 def read_callback():
-    for conf in CONFIGS:
-        get_metrics(conf)
-
-
-def get_metrics(conf):
-    info = fetch_info(conf)
-
-    if not info:
-        collectd.error('VDSM Plugin: No info received')
-        return
-
+    global client
+    if client is None:
+        log("for some reason client is still None")
+#    stats = client.getAllVmStats()
+    info = client.getVdsStats()
+#    stats += client.getStorageDomainsList()
+    # maybe make stats easier to parse?
+    #info = parse_info(stats)
     log(info)
 
+    # for now we support only one instance
+    conf = CONFIGS[0]
     plugin_instance = conf['instance']
     if plugin_instance is None:
         plugin_instance = '{host}:{port}'.format(host=conf['host'],
                                                  port=conf['port'])
 
-    # TODO: create VDSM_INFO thing
-    for keyTuple, val in VDSM_INFO.iteritems():
-        key, val = keyTuple
-
-        if key == 'total_connections_received' and val == 'counter':
-            dispatch_value(info, 'total_connections_received', 'counter',
-                           plugin_instance, 'connections_received')
-        elif key == 'total_commands_processed' and val == 'counter':
-            dispatch_value(info, 'total_commands_processed', 'counter',
-                           plugin_instance, 'commands_processed')
-        else:
-            dispatch_value(info, key, val, plugin_instance)
+    # currently check only items - status does not relavent
+    try:
+        #info = info['items'][0]
+        # TODO: create VDSM_INFO thing
+        for value, description in VDSM_INFO.iteritems():
+            #
+            try:
+                val = collectd.Values(plugin='vdsm_stats')
+                val.type = 'bitrate'
+                val.type_instance = 'test'
+                val.plugin_instance = 'test'
+                val.values = [int(info[value])]
+                val.dispatch()
+                # dispatch_value(info[value], description,
+                #               plugin_instance, value)
+            except KeyError:
+                log(value + ' is not parts of vdsm stats')
+    except KeyError:
+        # got nothing
+        pass
 
 
 def log(msg):
