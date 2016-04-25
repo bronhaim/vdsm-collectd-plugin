@@ -94,10 +94,10 @@ def read_callback():
             metric = collectd.Values()
             metric.plugin = vm_id
             metric.interval = 10
-            metric.type = 'guage'
+            metric.type = 'gauge'
             metric.type_instance = key
             metric.values = [val]
-            val.dispatch()
+            metric.dispatch()
 
 
 def log(msg):
