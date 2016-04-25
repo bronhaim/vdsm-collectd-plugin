@@ -26,26 +26,18 @@
 # collectd-python:
 #   http://collectd.org/documentation/manpages/collectd-python.5.shtml
 
-# Require vdsm installed and running
 from vdsm import jsonrpcvdscli
 from vdsm.tool import service
 import collectd
-import re
+import signal
 
-# Verbose logging on/off. Override in config by specifying 'Verbose'.
 VERBOSE_LOGGING = False
-
 CONFIGS = []
-VDSM_INFO = {
-                'cpuUsage': 'CPU usage',
-                'memFree': 'Free memory in hypervisor',
-                'cpuIdle': 'CPU idle time',
-                'swapFree': 'free swap space',
-                'cpuSys': 'whatever',
-            }
-
-
 client = None
+
+
+def restore_sigchld():
+    signal.signal(signal.SIGCHLD, signal.SIG_DFL)
 
 
 def configure_callback(conf):
@@ -58,9 +50,6 @@ def configure_callback(conf):
     for node in conf.children:
         key = node.key.lower()
         val = node.values[0]
-        log('Analyzing config %s key (value: %s)' % (key, val))
-        searchObj = re.search(r'vdsm_(.*)$', key, re.M | re.I)
-
         if key == 'host':
             host = val
         elif key == 'port':
@@ -84,45 +73,31 @@ def configure_callback(conf):
                     'instance': instance})
 
 
-
 def read_callback():
     global client
     if client is None:
         log("for some reason client is still None")
-#    stats = client.getAllVmStats()
-    info = client.getVdsStats()
+    stats = client.getAllVmStats()
+#    info = client.getVdsStats()
 #    stats += client.getStorageDomainsList()
-    # maybe make stats easier to parse?
-    #info = parse_info(stats)
-    log(info)
 
-    # for now we support only one instance
-    conf = CONFIGS[0]
-    plugin_instance = conf['instance']
-    if plugin_instance is None:
-        plugin_instance = '{host}:{port}'.format(host=conf['host'],
-                                                 port=conf['port'])
+    output = {}
+    for stat in stats['items']:
+        vm_id = stat['vmId']
+        output[vm_id] = {}
+        output[vm_id]['name'] = stat['vmName']
+        output[vm_id]['cpuUsage'] = int(stat['cpuUsage'])
+        output[vm_id]['memUsage'] = int(stat['memUsage'])
 
-    # currently check only items - status does not relavent
-    try:
-        #info = info['items'][0]
-        # TODO: create VDSM_INFO thing
-        for value, description in VDSM_INFO.iteritems():
-            #
-            try:
-                val = collectd.Values(plugin='vdsm_stats')
-                val.type = 'bitrate'
-                val.type_instance = 'test'
-                val.plugin_instance = 'test'
-                val.values = [int(info[value])]
-                val.dispatch()
-                # dispatch_value(info[value], description,
-                #               plugin_instance, value)
-            except KeyError:
-                log(value + ' is not parts of vdsm stats')
-    except KeyError:
-        # got nothing
-        pass
+    for vm_id, _ in output.iteritems():
+        for key, val in output[vm_id].iteritems():
+            metric = collectd.Values()
+            metric.plugin = vm_id
+            metric.interval = 10
+            metric.type = 'guage'
+            metric.type_instance = key
+            metric.values = [val]
+            val.dispatch()
 
 
 def log(msg):
@@ -132,29 +107,28 @@ def log(msg):
 
 
 def init_callback():
+    restore_sigchld()
+
     # TODO: add ssl option
-    # TODO: using one conf for now. maybe we should support listening for more
-    # hosts
     log("Init: Check VDSM availability")
     if service.service_status("vdsmd"):
         log("vdsmd is not running.")
-        # TODO: what is it was down at first? can we rerun the plugin?
         return
-    # maybe add event queue as well?
+
     global client
     client = jsonrpcvdscli.connect('jms.topic.vdsm_requests')
     # TODO: add to jsonrpcvdscli even method registration
-    # client._client.registerEventCallback(event_recieved)
+    client._client.registerEventCallback(event_recieved)
     # TODO: stop client gently
 
 
 # doesn't work yet
 def event_recieved():
-    log("Got event")
+    log("event received")
 
 
-# register collectd callbacks
 collectd.register_config(configure_callback)
 collectd.register_init(init_callback)
+
 # using default interval each 10sec
 collectd.register_read(read_callback)
